@@ -1,0 +1,673 @@
+if(@ARGV == 0) {
+	print "***Purpose: Calculate divergence between the X and Y chromosomes using Y chromosome assembly\n";
+	print "***Use:  yAnnotationToGenome_YCDSFromMaker_fasta.pl <genome fasta file> <transcript fasta file>\n";
+	print "***Output: Divergence file, synteny with the X chromosome, intron size difference between the X and Y\n";
+	exit(0);
+}
+
+#use strict;
+use warnings;
+use Data::Dumper;
+
+
+#paml subroutine
+sub paml {
+	my $xAlign = $_[0];
+	my $yAlign = $_[1];
+	open(INPUT, ">test.input") || die "Unable to write paml input\n";
+	open(CODEML, ">codeml.ctl") || die "Unable to write codeml input file\n";
+		
+	#convert fasta to phylip format
+	print INPUT "2\t" . length ($xAlign) . "\n";
+	print INPUT "X\n$xAlign\nY\n$yAlign\n";
+
+	#write codeml file
+	print CODEML <<EOF;
+	seqfile = test.input * sequence data filename
+     treefile = stewart.trees      * tree structure file name
+      outfile = mlc.txt           * main result file name
+
+        noisy = 9  * 0,1,2,3,9: how much rubbish on the screen
+      verbose = 1  * 0: concise; 1: detailed, 2: too much
+      runmode = -2  * 0: user tree;  1: semi-automatic;  2: automatic
+                   * 3: StepwiseAddition; (4,5):PerturbationNNI; -2: pairwise
+
+      seqtype = 1  * 1:codons; 2:AAs; 3:codons-->AAs
+    CodonFreq = 2  * 0:1/61 each, 1:F1X4, 2:F3X4, 3:codon table
+
+*        ndata = 10
+        clock = 0  * 0:no clock, 1:clock; 2:local clock; 3:CombinedAnalysis
+       aaDist = 0  * 0:equal, +:geometric; -:linear, 1-6:G1974,Miyata,c,p,v,a
+   aaRatefile = dat/jones.dat  * only used for aa seqs with model=empirical(_F)
+                   * dayhoff.dat, jones.dat, wag.dat, mtmam.dat, or your own
+
+        model = 2
+                   * models for codons:
+                       * 0:one, 1:b, 2:2 or more dN/dS ratios for branches
+                   * models for AAs or codon-translated AAs:
+                       * 0:poisson, 1:proportional, 2:Empirical, 3:Empirical+F
+                       * 6:FromCodon, 7:AAClasses, 8:REVaa_0, 9:REVaa(nr=189)
+
+      NSsites = 0  * 0:one w;1:neutral;2:selection; 3:discrete;4:freqs;
+                   * 5:gamma;6:2gamma;7:beta;8:beta&w;9:beta&gamma;
+                   * 10:beta&gamma+1; 11:beta&normal>1; 12:0&2normal>1;
+                   * 13:3normal>0
+
+        icode = 0  * 0:universal code; 1:mammalian mt; 2-10:see below
+        Mgene = 0
+                   * codon: 0:rates, 1:separate; 2:diff pi, 3:diff kapa, 4:all diff
+                   * AA: 0:rates, 1:separate
+
+    fix_kappa = 0  * 1: kappa fixed, 0: kappa to be estimated
+        kappa = 2  * initial or fixed kappa
+    fix_omega = 0  * 1: omega or omega_1 fixed, 0: estimate 
+        omega = .4 * initial or fixed omega, for codons or codon-based AAs
+
+    fix_alpha = 1  * 0: estimate gamma shape parameter; 1: fix it at alpha
+        alpha = 0. * initial or fixed alpha, 0:infinity (constant rate)
+       Malpha = 0  * different alphas for genes
+        ncatG = 8  * # of categories in dG of NSsites models
+
+        getSE = 0  * 0: don't want them, 1: want S.E.s of estimates
+ RateAncestor = 1  * (0,1,2): rates (alpha>0) or ancestral states (1 or 2)
+
+   Small_Diff = .5e-6
+    cleandata = 1  * remove sites with ambiguity data (1:yes, 0:no)?
+*  fix_blength = -1  * 0: ignore, -1: random, 1: initial, 2: fixed
+       method = 0  * Optimization method 0: simultaneous; 1: one branch a time
+
+* Genetic codes: 0:universal, 1:mammalian mt., 2:yeast mt., 3:mold mt.,
+* 4: invertebrate mt., 5: ciliate nuclear, 6: echinoderm mt., 
+* 7: euplotid mt., 8: alternative yeast nu. 9: ascidian mt., 
+* 10: blepharisma nu.
+* These codes correspond to transl_table 1 to 11 of GENEBANK.
+EOF
+
+	#run paml
+	#use the same codeml control file for all the paml runs. temp. seqfile=test.input, runmode=-2, seqtype=1, model=2, cleandata=1
+	
+	
+	close(CODEML);
+	system("codeml codeml.ctl");
+	
+	print "PAML Exit Code: $?\n";
+	
+	open(CODEML, "mlc.txt") || die "unable to open paml output: $!\n";
+	
+	my @codeml = <CODEML>;
+	my @results = split(/[\s+=]/, $codeml[-1]);
+	my @values;
+	foreach my $item (@results) {
+		if ($item =~ /^[0-9]/) {
+			push(@values, $item);
+		}
+	} 
+	print "@results\n";
+	print "@values\n";
+	my $dn = $values[4];
+	my $ds = $values[5];
+	my $dnds = $values[3];
+	my $n = $values[2];
+	my $s = $values[1];
+	print "Undefined PAML\n" if !defined($n);
+	print "$n\t$s\t$dnds\t$dn\t$ds\n";
+	unlink ("test.input", "mlc.txt", "codeml.ctl", "rub", "rst1", "rst", "2NG.t", "2NG.dS", "2NG.dN", "2ML.t", "2ML.dS", "2ML.dN", "4fold.nuc");
+	
+	return ($dn, $ds, $dnds, $n, $s);
+}
+
+
+#my $maxIntron = $ARGV[1];
+open (FASTA, $ARGV[0]) || die "Unable to open chromosome XIX fasta file\n";
+open (YCHR, $ARGV[1]) || die "Unable to open Y chr transcript fasta\n";
+
+my $fastaSequence;
+my %ensemblSequenceX;
+my %transcriptSequenceY;
+my %ensemblIntrons;
+my %ensemblExonNumber;
+my %ensemblXPosition;
+my %yAssemblyFasta;
+my %yAlignIntrons;
+my %makerSequence;
+my %makerMaxIntronSize;
+my %makerExonNumber;
+
+#process input files
+#load chromosome fasta sequence. This sequence is at the end of the ensembl gff file
+my $header = "";
+my $fastaMarker = 0;
+while(<FASTA>) {
+	if ($_ !~ /^>/) {
+		chomp($_);
+		$fastaSequence{$header} .= $_;
+	}
+	else {
+	 	chomp($_);
+	 	my @subHeader = split(/\s+/, $_);
+	 	$header = substr($subHeader[0], 1);
+	 	$fastaSequence{$header} = "";
+	}
+}
+
+while (<YCHR>) {
+	if ($_ !~ /^>/) {
+		chomp($_);
+		$makerSequence{$header} .= $_;
+	}
+	if ($_ =~ /^>/) {
+	 	chomp($_);
+	 	$header = substr($_, 1);
+	 	$makerSequence{$header} = "";
+	}
+}
+
+# my %yTranscriptsLength;
+# my %finalYTranscripts;
+# foreach my $transcript (keys(%transcriptSequenceY)) {
+# 	my $length = length($transcriptSequenceY{$transcript});
+# 	#my @splitTranscript = split(/\./, $transcript);
+# 	if (!exists($yTranscriptsLength{$transcript})) {
+# 		$yTranscriptsLength{$transcript} = $length;
+# 		$finalYTranscripts{$transcript} = $transcriptSequenceY{$transcript};
+# 	}
+# 	else {
+# 		print "Exists!\n";
+# 	}
+# }
+
+open(OUT, ">YtoGenome.$ARGV[1].divergence.txt") || die "Unable to open output file: $!\n";
+open(NOTALIGNED, ">YtoGenome.$ARGV[1].notAligned.txt") || die "Unable to open output file: $!\n";
+#print OUT "ID\tX_Position\tY_Position\tTranscript_Length\tX_IntronNumber\tX_IntronSum\tY_IntronNumber\tY_IntronSum\tY_Deletion\tY_Insertion\tdn\tds\tdnds\n";
+print NOTALIGNED "ID\tPercent_Aligned\n";
+
+#align to the X chromosome with exonerate
+foreach my $gene (keys(%makerSequence)) {
+	my $ySequenceLength = length($makerSequence{$gene});
+	print "Align: $gene\n";
+	print "Length: $ySequenceLength\n";
+	print "Sequence: $makerSequence{$gene}\n";
+	my $transcriptID = $gene;
+	my %currentAlignments;
+
+	open (BLATFILE2, ">exonerateXInput.$ARGV[1].txt") || die "Unable to write exonerate file\n";
+	open (ANNOTATION, ">annotation.$ARGV[1].txt") || die "Unable to create annotation file\n";
+
+	print BLATFILE2 ">Y\n$makerSequence{$gene}\n";
+	print ANNOTATION "$gene + 0 $ySequenceLength\n";
+
+	$exonerate = `exonerate --model cdna2genome -M 2000 --bestn 15 --annotation annotation.$ARGV[1].txt --showalignment FALSE --showvulgar TRUE exonerateXInput.$ARGV[1].txt $ARGV[0]`;
+	unlink("exonerateXInput.$ARGV[1].txt", "annotation.$ARGV[1].txt");
+	my @exonerateResults = split(/\n/, $exonerate);
+	print "$exonerate\n";
+	
+	if (@exonerateResults == 0) {
+		print NOTALIGNED "$transcriptID\tNO ALIGN\n";
+		exit(0);
+	}
+
+	# my @topResult = split(/\s+/, $exonerateResults[2]);
+# 	print "Top result: @topResult\n";
+# 	#reconstruct the alignment
+# 	my $topPercentAligned = ($topResult[3] - $topResult[2]) / $ySequenceLength;
+# 	my $genomeStart;
+# 	my $genomeEnd;
+# 	my $chr = 'none';
+# 	$chr = $topResult[5];
+# 	if ($topPercentAligned >= 0.95 && $topResult[2] < $topResult[3]) {
+# 		my $genomeAlign = "";
+# 		my $yAlign = "";
+# 		my $genomeOrientation = $topResult[8];
+# 		#construct alignments
+# 		my $genomeSubstring;
+# 		if ($genomeOrientation =~ /\+/) {
+# 			$genomeSubstring = substr($fastaSequence{$chr}, $topResult[6], ($topResult[7] - $topResult[6]));
+# 			$genomeStart = $topResult[6];
+# 			$genomeEnd = $topResult[7];
+# 		}
+# 		else {
+# 			$genomeSubstring = substr($fastaSequence{$chr}, $topResult[7], ($topResult[6] - $topResult[7]));
+# 			$genomeSubstring = reverse($genomeSubstring);
+# 			$genomeSubstring =~ tr/ACGTacgt/TGCAtgca/;
+# 			$genomeStart = $topResult[7];
+# 			$genomeEnd = $topResult[6];
+# 		}
+# 		my @genomeIntrons;
+# 		my $yLength = $topResult[3] - $topResult[2];
+# 		my $ySubstring = substr($makerSequence{$gene}, $topResult[2], $yLength);
+# 		for (my $i=10; $i < @topResult; $i+=3) {
+# 			if ($topResult[$i] =~ /M/) {
+# 				$yAlign .= substr($ySubstring, 0, $topResult[$i+1], "");
+# 				$genomeAlign .= substr($genomeSubstring, 0, $topResult[$i+2], "");
+# 			}
+# 			elsif ($topResult[$i] =~ /C/) {
+# 				$yAlign .= substr($ySubstring, 0, $topResult[$i+1], "");
+# 				$genomeAlign .= substr($genomeSubstring, 0, $topResult[$i+2], "");
+# 			}
+# 			elsif ($topResult[$i] =~ /G/) {
+# 				my $yGap = $topResult[$i+1];
+# 				my $genomeGap = $topResult[$i+2];
+# 				#genome insertion
+# 				if ($genomeGap > 0) {
+# 					$yAlign .= "-" x $genomeGap;
+# 					$genomeAlign .= substr($genomeSubstring, 0, $genomeGap, "");
+# 				}
+# 				#y insertion
+# 				if ($yGap > 0) {
+# 					$yAlign .= substr($ySubstring, 0, $yGap, "");
+# 					$genomeAlign .= "-" x $yGap;
+# 				}
+# 				if ($yGap > 0 && $genomeGap > 0) {
+# 					print "Double gap problem\n";
+# 					exit(0);
+# 				}
+# 			}
+# 			elsif ($topResult[$i] =~ /3/) {
+# 				my $yIntron = $topResult[$i+1];
+# 				my $genomeIntron = $topResult[$i+2];
+# 				#genome intron
+# 				if ($genomeIntron > 0) {
+# 					substr($genomeSubstring, 0, $genomeIntron, ""); 
+# 				}
+# 				#y intron
+# 				if ($yIntron > 0) {
+# 					substr($ySubstring, 0, $yIntron, "");
+# 					print "Y intron problem\n";
+# 					exit(0);
+# 				}
+# 				if ($yIntron > 0 && $genomeIntron > 0) {
+# 					print "Double intron problem\n";
+# 					exit(0);
+# 				}
+# 			}
+# 			elsif ($topResult[$i] =~ /I/) {
+# 				my $yIntron = $topResult[$i+1];
+# 				my $genomeIntron = $topResult[$i+2];
+# 				#genome intron
+# 				if ($genomeIntron > 0) {
+# 					substr($genomeSubstring, 0, $genomeIntron, ""); 
+# 					push (@genomeIntrons, $genomeIntron + 4);
+# 				}
+# 				#y intron
+# 				if ($yIntron > 0) {
+# 					substr($ySubstring, 0, $yIntron, "");
+# 					print "Y intron problem\n";
+# 					exit(0);
+# 				}
+# 				if ($yIntron > 0 && $genomeIntron > 0) {
+# 					print "Double intron problem\n";
+# 					exit(0);
+# 				}
+# 			}
+# 			elsif ($topResult[$i] =~ /5/) {
+# 				my $yIntron = $topResult[$i+1];
+# 				my $genomeIntron = $topResult[$i+2];
+# 				#genome intron
+# 				if ($genomeIntron > 0) {
+# 					substr($genomeSubstring, 0, $genomeIntron, ""); 
+# 				}
+# 				#y intron
+# 				if ($yIntron > 0) {
+# 					substr($ySubstring, 0, $yIntron, "");
+# 					print "Y intron problem\n";
+# 					exit(0);
+# 				}
+# 				if ($yIntron > 0 && $genomeIntron > 0) {
+# 					print "Double intron problem\n";
+# 					exit(0);
+# 				}
+# 			}
+# 			else {
+# 				print "Other category: $i\n";
+# 				exit(0);
+# 			}
+# 		}
+# 		print "y: $yAlign\n";
+# 		print "genome: $genomeAlign\n";
+# 	
+# 		#if not full sequence, remove the remaining nucleotides from the start or end 
+# 		if ($topPercentAligned != 1) {
+# 			my $start = $topResult[2];
+# 			my $end = $topResult[3];
+# 			my $startRemaining = 0;
+# 			print "Not full alignment: $start\t$end\n";
+# 			if ($start > 0) {
+# 				$startRemaining = $start % 3;
+# 				if ($startRemaining != 0) {
+# 					my $remove = 3 - $startRemaining;
+# 					substr($yAlign, 0, $remove, "");	
+# 					substr($genomeAlign, 0, $remove, "");	
+# 				}	
+# 			}
+# 			if ($end < $ySequenceLength) {
+# 				my $endRemaining = ($ySequenceLength - $end) % 3;
+# 				if ($endRemaining != 0) {
+# 					my $remove = (3 - $endRemaining) * -1;
+# 					substr($yAlign, $remove) = '';
+# 					substr($genomeAlign, $remove) = '';
+# 				}
+# 			}
+# 			print "y modified: $yAlign\n";
+# 			print "genome modified: $genomeAlign\n";
+# 		}
+# 	
+# 		#remove gaps before PAML. At this point. Delete Y insertions and Y deletions to restore reading frame. Mark these sequences as frameshifts. 
+# 		my $yAlignNoGap;
+# 		my $genomeAlignNoGap;
+# 		my $genomeDeletion = 0;
+# 		my $genomeInsertion = 0;
+# 		for (my $i=0; $i < length($yAlign); $i+=3) {
+# 			my $character1 = substr($yAlign, $i, 3);
+# 			my $character2 = substr($genomeAlign, $i, 3);
+# 			if (index($character1, '-') > -1) {
+# 				#delete the insertion characters to restore the frame
+# 				for (my $j=0; $j < 3; $j++) {
+# 					if (substr($character1, $j, 1) =~ /-/) {
+# 						$genomeInsertion++;
+# 					}
+# 					else {
+# 						$yAlignNoGap .= substr($character1, $j, 1);
+# 						$genomeAlignNoGap .= substr($character2, $j, 1);
+# 					}
+# 				}
+# 			}
+# 			elsif (index($character2, '-') > -1) {
+# 				for (my $j=0; $j < 3; $j++) {
+# 					if (substr($character2, $j, 1) =~ /-/) {
+# 						$genomeDeletion++;
+# 					}
+# 				}
+# 			}
+# 			else {
+# 				$yAlignNoGap .= $character1;
+# 				$genomeAlignNoGap .= $character2;
+# 			}
+# 		}
+# 		#remove stop codons before PAML
+# 		my $yAlignNoGapNoStop;
+# 		my $genomeAlignNoGapNoStop;
+# 		for (my $i=0; $i < length($yAlignNoGap); $i+=3) { 
+# 			my $character1 = substr($yAlignNoGap, $i, 3);
+# 			my $character2 = substr($genomeAlignNoGap, $i, 3);
+# 	
+# 			if ($character1 !~ /TAA/i && $character1 !~ /TAG/i && $character1 !~ /TGA/i && $character2 !~ /TAA/i && $character2 !~ /TAG/i && $character2 !~ /TGA/i) {
+# 				$yAlignNoGapNoStop .= $character1;
+# 				$genomeAlignNoGapNoStop .= $character2;
+# 			}
+# 		}
+# 		print "paml y: $yAlignNoGapNoStop\n";
+# 		print "paml genome: $genomeAlignNoGapNoStop\n";
+# 
+# 		my ($dn, $ds, $dnds, $n, $s) = paml($yAlignNoGapNoStop, $genomeAlignNoGapNoStop);
+# 		# my $xIntronNumber = scalar(@{ $ensemblIntrons{$gene} });
+# 	# 	my $xIntronSum = 0;
+# 	# 	foreach my $intron (@{ $ensemblIntrons{$gene} }) {
+# 	# 		$xIntronSum += $intron;
+# 	# 	}
+# 		my $genomeIntronNumber = scalar(@genomeIntrons);
+# 		my $genomeIntronSum = 0;
+# 		foreach my $intron (@genomeIntrons) {
+# 			$genomeIntronSum += $intron;
+# 		}
+# 	
+# 		#ID\tX_Position\tY_Position\tTranscript_Length\tX_IntronNumber\tX_IntronSum\tY_IntronNumber\tY_IntronSum\tdn\tds\tdnds
+# 		print OUT "$transcriptID\t$chr\t$genomeStart\t$genomeEnd\t$topResult[2]\t$topResult[3]\t$ySequenceLength\t$genomeIntronNumber\t$genomeIntronSum\t$genomeDeletion\t$genomeInsertion\t$dn\t$ds\t$dnds\n";
+	
+	#determine if any other alignments equal the top result
+	for (my $i=2; $i < @exonerateResults; $i++) {
+		@nextResult = split(/\s+/, $exonerateResults[$i]);
+		if ($nextResult[0] =~ /^vulgar/) {
+			my $nextPercentAligned = abs($nextResult[3] - $nextResult[2]) / $ySequenceLength;
+			my $transcriptID = "$gene";
+			my $genomeStart;
+			my $genomeEnd;
+			$chr = $nextResult[5];
+			if ($nextPercentAligned >= 0.95) {
+				print "Next result: @nextResult\n";
+				my $genomeAlign = "";
+				my $yAlign = "";
+				my $genomeOrientation = $nextResult[8];
+				my $yOrientation = $nextResult[4];
+				#construct alignments
+				my $genomeSubstring;
+				if ($genomeOrientation =~ /\+/) {
+					$genomeSubstring = substr($fastaSequence{$chr}, $nextResult[6], ($nextResult[7] - $nextResult[6]));
+					$genomeStart = $nextResult[6];
+					$genomeEnd = $nextResult[7];
+				}
+				else {
+					$genomeSubstring = substr($fastaSequence{$chr}, $nextResult[7], ($nextResult[6] - $nextResult[7]));
+					$genomeSubstring = reverse($genomeSubstring);
+					$genomeSubstring =~ tr/ACGTacgt/TGCAtgca/;
+					$genomeStart = $nextResult[7];
+					$genomeEnd = $nextResult[6];
+				}
+				my @genomeIntrons;
+				my $yStart;
+				my $yEnd;
+				my $yLength;
+				my $ySubstring;
+				if ($yOrientation =~ /\+/) {
+					$yStart = $nextResult[2];
+					$yEnd = $nextResult[3];
+					$yLength = $nextResult[3] - $nextResult[2];
+					$ySubstring = substr($makerSequence{$gene}, $yStart, $yLength);
+				}
+				else {
+					$yStart = $nextResult[3];
+					$yEnd = $nextResult[2];
+					$yLength = $nextResult[2] - $nextResult[3];
+					$ySubstring = substr($makerSequence{$gene}, $yStart, $yLength);
+					$ySubstring = reverse($ySubstring);
+					$ySubstring =~ tr/ACGTacgt/TGCAtgca/;
+				}
+				
+				my $currentAlign = "$chr\_$genomeStart\_$genomeEnd";
+				if (exists($currentAlignments{$currentAlign})) {
+					print "Duplicate alignment\n";
+					next;
+				}
+				$currentAlignments{"$chr\_$genomeStart\_$genomeEnd"} = "";
+				
+				for (my $i=10; $i < @nextResult; $i+=3) {
+					if ($nextResult[$i] =~ /M/) {
+						$yAlign .= substr($ySubstring, 0, $nextResult[$i+1], "");
+						$genomeAlign .= substr($genomeSubstring, 0, $nextResult[$i+2], "");
+					}
+					elsif ($nextResult[$i] =~ /C/) {
+						$yAlign .= substr($ySubstring, 0, $nextResult[$i+1], "");
+						$genomeAlign .= substr($genomeSubstring, 0, $nextResult[$i+2], "");
+					}
+					elsif ($nextResult[$i] =~ /S/) {
+						$yAlign .= substr($ySubstring, 0, $nextResult[$i+1], "");
+						$genomeAlign .= substr($genomeSubstring, 0, $nextResult[$i+2], "");
+					}
+					elsif ($nextResult[$i] =~ /G/) {
+						my $yGap = $nextResult[$i+1];
+						my $genomeGap = $nextResult[$i+2];
+						#genome insertion
+						if ($genomeGap > 0) {
+							$yAlign .= "-" x $genomeGap;
+							$genomeAlign .= substr($genomeSubstring, 0, $genomeGap, "");
+						}
+						#y insertion
+						if ($yGap > 0) {
+							$yAlign .= substr($ySubstring, 0, $yGap, "");
+							$genomeAlign .= "-" x $yGap;
+						}
+						if ($yGap > 0 && $genomeGap > 0) {
+							print "Double gap problem\n";
+							exit(0);
+						}
+					}
+					elsif ($nextResult[$i] =~ /3/) {
+						my $yIntron = $nextResult[$i+1];
+						my $genomeIntron = $nextResult[$i+2];
+						#genome intron
+						if ($genomeIntron > 0) {
+							substr($genomeSubstring, 0, $genomeIntron, ""); 
+						}
+						#y intron
+						if ($yIntron > 0) {
+							substr($ySubstring, 0, $yIntron, "");
+							print "Y intron problem\n";
+							exit(0);
+						}
+						if ($yIntron > 0 && $genomeIntron > 0) {
+							print "Double intron problem\n";
+							exit(0);
+						}
+					}
+					elsif ($nextResult[$i] =~ /I/) {
+						my $yIntron = $nextResult[$i+1];
+						my $genomeIntron = $nextResult[$i+2];
+						#genome intron
+						if ($genomeIntron > 0) {
+							substr($genomeSubstring, 0, $genomeIntron, ""); 
+							push (@genomeIntrons, $genomeIntron + 4);
+						}
+						#y intron
+						if ($yIntron > 0) {
+							substr($ySubstring, 0, $yIntron, "");
+							print "Y intron problem\n";
+							exit(0);
+						}
+						if ($yIntron > 0 && $genomeIntron > 0) {
+							print "Double intron problem\n";
+							exit(0);
+						}
+					}
+					elsif ($nextResult[$i] =~ /5/) {
+						my $yIntron = $nextResult[$i+1];
+						my $genomeIntron = $nextResult[$i+2];
+						#genome intron
+						if ($genomeIntron > 0) {
+							substr($genomeSubstring, 0, $genomeIntron, ""); 
+						}
+						#y intron
+						if ($yIntron > 0) {
+							substr($ySubstring, 0, $yIntron, "");
+							print "Y intron problem\n";
+							exit(0);
+						}
+						if ($yIntron > 0 && $genomeIntron > 0) {
+							print "Double intron problem\n";
+							exit(0);
+						}
+					}
+					else {
+						print "Other category: $i\n";
+						exit(0);
+					}
+				}
+				
+				#reverse the y alignment back if it is reversed
+				if ($yOrientation =~ /\-/) {
+					$genomeAlign = reverse($genomeAlign);
+					$genomeAlign =~ tr/ACGTacgt/TGCAtgca/;
+					$yAlign = reverse($yAlign);
+					$yAlign =~ tr/ACGTacgt/TGCAtgca/;
+				}
+				
+				print "y: $yAlign\n";
+				print "genome: $genomeAlign\n";
+
+				#if not full sequence, remove the remaining nucleotides from the start or end 
+				if ($nextPercentAligned != 1) {
+					my $start = $yStart;
+					my $end = $yEnd;
+					my $startRemaining = 0;
+					print "Not full alignment: $start\t$end\n";
+					if ($start > 0) {
+						$startRemaining = $start % 3;
+						if ($startRemaining != 0) {
+							my $remove = 3 - $startRemaining;
+							substr($yAlign, 0, $remove, "");	
+							substr($genomeAlign, 0, $remove, "");	
+						}	
+					}
+					if ($end < $ySequenceLength  ) {
+						my $endRemaining = ($ySequenceLength - $end) % 3;
+						if ($endRemaining != 0) {
+							my $remove = (3 - $endRemaining) * -1;
+							substr($yAlign, $remove) = '';
+							substr($genomeAlign, $remove) = '';
+						}
+					}
+					print "y modified: $yAlign\n";
+					print "genome modified: $genomeAlign\n";
+				}
+				#remove gaps before PAML. At this point. Delete Y insertions and Y deletions to restore reading frame. Mark these sequences as frameshifts. 
+				my $yAlignNoGap;
+				my $genomeAlignNoGap;
+				my $genomeDeletion = 0;
+				my $genomeInsertion = 0;
+				for (my $i=0; $i < length($yAlign); $i+=3) {
+					my $character1 = substr($yAlign, $i, 3);
+					my $character2 = substr($genomeAlign, $i, 3);
+					if (index($character1, '-') > -1) {
+						#delete the insertion characters to restore the frame
+						for (my $j=0; $j < 3; $j++) {
+							if (substr($character1, $j, 1) =~ /-/) {
+								$genomeInsertion++;
+							}
+							else {
+								$yAlignNoGap .= substr($character1, $j, 1);
+								$genomeAlignNoGap .= substr($character2, $j, 1);
+							}
+						}
+					}
+					elsif (index($character2, '-') > -1) {
+						for (my $j=0; $j < 3; $j++) {
+							if (substr($character2, $j, 1) =~ /-/) {
+								$genomeDeletion++;
+							}
+						}
+					}
+					else {
+						$yAlignNoGap .= $character1;
+						$genomeAlignNoGap .= $character2;
+					}
+				}
+				#remove stop codons before PAML
+				my $yAlignNoGapNoStop;
+				my $genomeAlignNoGapNoStop;
+				for (my $i=0; $i < length($yAlignNoGap); $i+=3) { 
+					my $character1 = substr($yAlignNoGap, $i, 3);
+					my $character2 = substr($genomeAlignNoGap, $i, 3);
+
+					if ($character1 !~ /TAA/i && $character1 !~ /TAG/i && $character1 !~ /TGA/i && $character2 !~ /TAA/i && $character2 !~ /TAG/i && $character2 !~ /TGA/i) {
+						$yAlignNoGapNoStop .= $character1;
+						$genomeAlignNoGapNoStop .= $character2;
+					}
+				}
+				
+				print "paml y: $yAlignNoGapNoStop\n";
+				print "paml genome: $genomeAlignNoGapNoStop\n";
+
+				my ($dn, $ds, $dnds, $n, $s) = paml($yAlignNoGapNoStop, $genomeAlignNoGapNoStop);
+				# my $xIntronNumber = scalar(@{ $ensemblIntrons{$gene} });
+			# 	my $xIntronSum = 0;
+			# 	foreach my $intron (@{ $ensemblIntrons{$gene} }) {
+			# 		$xIntronSum += $intron;
+			# 	}
+				my $genomeIntronNumber = scalar(@genomeIntrons);
+				my $genomeIntronSum = 0;
+				foreach my $intron (@genomeIntrons) {
+					$genomeIntronSum += $intron;
+				}
+
+				#ID\tX_Position\tY_Position\tTranscript_Length\tX_IntronNumber\tX_IntronSum\tY_IntronNumber\tY_IntronSum\tdn\tds\tdnds
+				print OUT "$transcriptID\t$chr\t$genomeStart\t$genomeEnd\t$yStart\t$yEnd\t$ySequenceLength\t$genomeIntronNumber\t$genomeIntronSum\t$genomeDeletion\t$genomeInsertion\t$dn\t$ds\t$dnds\n";
+			}
+			else {
+				#record the vulgar result that did not align
+				print NOTALIGNED "$transcriptID\t$chr\t$nextPercentAligned\t$ySequenceLength\t$nextResult[2]\t$nextResult[3]\n";
+			}
+		}
+	}
+	if ((abs($nextResult[3] - $nextResult[2]) / $ySequenceLength) < 0.95) {
+		#record the vulgar result that did not align
+		print NOTALIGNED "$transcriptID\t$chr\t$ySequenceLength\t$topResult[2]\t$topResult[3]\n";
+	}
+}
