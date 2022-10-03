@@ -1,0 +1,19 @@
+cd /scratch/des65576/singlecellmay/stick_Testis_Octv5b/outs/sort/
+
+ml HTSeq/0.13.5-foss-2019b-Python-3.7.4
+
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster1.bam stickleback_v5_ensembl_genes_Y.gff > cluster1_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster2.bam stickleback_v5_ensembl_genes_Y.gff > cluster2_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster3.bam stickleback_v5_ensembl_genes_Y.gff > cluster3_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster4.bam stickleback_v5_ensembl_genes_Y.gff > cluster4_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster5.bam stickleback_v5_ensembl_genes_Y.gff > cluster5_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster6.bam stickleback_v5_ensembl_genes_Y.gff > cluster6_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster7.bam stickleback_v5_ensembl_genes_Y.gff > cluster7_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster8.bam stickleback_v5_ensembl_genes_Y.gff > cluster8_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster9.bam stickleback_v5_ensembl_genes_Y.gff > cluster9_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster10.bam stickleback_v5_ensembl_genes_Y.gff > cluster10_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster11.bam stickleback_v5_ensembl_genes_Y.gff > cluster11_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster12.bam stickleback_v5_ensembl_genes_Y.gff > cluster12_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster13.bam stickleback_v5_ensembl_genes_Y.gff > cluster13_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster14.bam stickleback_v5_ensembl_genes_Y.gff > cluster14_v5Y.tsv
+htseq-count -f bam --order pos --mode union --nonunique all --minaqual 1 -t gene -i ID -r name cluster15.bam stickleback_v5_ensembl_genes_Y.gff > cluster15_v5Y.tsv
